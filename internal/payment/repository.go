@@ -150,6 +150,10 @@ func (r *pgRepository) ListIntents(ctx context.Context, tenantID string, limit, 
 		); err != nil {
 			return nil, fmt.Errorf("scan payment intent: %w", err)
 		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("itterate payment intent: %w", err)
+		}
+
 		list = append(list, &intent)
 	}
 	return list, nil
@@ -159,7 +163,7 @@ func (r *pgRepository) UpdateIntentStatus(ctx context.Context, tenantID, id, sta
 	query := `
 	UPDATE payment_intents
 	SET status = $1, updated_at = CURRENT_TIMESTAMP
-	WHERE tenant_id = $2 AND id = $3
+	WHERE tenant_id = $2 AND id = $3 AND status NOT IN ('succeeded', 'expired')
 	`
 
 	cmdTag, err := r.db.Exec(ctx, query, status, tenantID, id)
@@ -175,30 +179,39 @@ func (r *pgRepository) UpdateIntentStatus(ctx context.Context, tenantID, id, sta
 
 func (r *pgRepository) CreateAttempt(ctx context.Context, attempt *models.PaymentAttempts) error {
 	query := `
-	INSERT INTO payment_attempts(
-	tenant_id,
-	payment_intent_id,
-	provider_connection_id,
-	attempt_number,
-	provider_payment_id,
-	provider_status,
-	status,
-	error_code,
-	error_message
-	) VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9) RETURNING id, created_at, updated_at
+	INSERT INTO payment_attempts (
+		tenant_id,
+		payment_intent_id,
+		provider_connection_id,
+		attempt_number,
+		provider_payment_id,
+		provider_status,
+		status,
+		error_code,
+		error_message
+	) VALUES (
+		$1,
+		$2,
+		$3,
+		COALESCE((SELECT MAX(attempt_number) FROM payment_attempts WHERE payment_intent_id = $2), 0) + 1,
+		$4,
+		$5,
+		$6,
+		$7,
+		$8
+	) RETURNING id, attempt_number, created_at, updated_at
 	`
 
 	err := r.db.QueryRow(ctx, query,
 		attempt.TenantID,
 		attempt.PaymentIntentID,
 		attempt.ProviderConnectionID,
-		attempt.AttemptNumber,
 		attempt.ProviderPaymentID,
 		attempt.ProviderStatus,
 		attempt.Status,
 		attempt.ErrorCode,
 		attempt.ErrorMessage,
-	).Scan(&attempt.ID, &attempt.CreatedAt, &attempt.UpdatedAt)
+	).Scan(&attempt.ID, &attempt.AttemptNumber, &attempt.CreatedAt, &attempt.UpdatedAt)
 
 	if err != nil {
 		return fmt.Errorf("failed to create payment attempt: %w", err)
