@@ -109,15 +109,14 @@ CREATE TABLE IF NOT EXISTS webhook_events (
 CREATE INDEX IF NOT EXISTS idx_webhook_events_fingerprint ON webhook_events(event_fingerprint);
 
 CREATE TABLE IF NOT EXISTS idempotency_records (
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
     idempotency_key VARCHAR(255) NOT NULL,
     request_hash VARCHAR(128) NOT NULL,
     response_ref TEXT,
     status VARCHAR(20) NOT NULL,
+    expires_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_idempotency_tenant_key UNIQUE (tenant_id, idempotency_key)
+    PRIMARY KEY (tenant_id, idempotency_key)
 );
 
 CREATE TABLE IF NOT EXISTS settlement_batches (

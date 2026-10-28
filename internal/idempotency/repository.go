@@ -1,0 +1,113 @@
+package idempotency
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"payment-api-gateway/internal/models"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+
+
+
+type Repository interface{
+	GetRecord(ctx context.Context, tenantID, key string) (*models.IdempotencyRecords, error)
+	CreateRecord(ctx context.Context, record *models.IdempotencyRecords) error
+	UpdateRecord(ctx context.Context, tenantID, key, status, response string) error
+}
+
+
+type pgRepository struct {
+	db *pgxpool.Pool
+}
+
+func (r *pgRepository) GetRecord(ctx context.Context, tenantID, key string) (*models.IdempotencyRecords, error) {
+
+	query := `
+	SELECT
+	tenant_id,
+	idempotency_key,
+	request_hash,
+	response_ref,
+	status,
+	created_at,
+	updated_at
+	WHERE tenant_id = $1
+	AND idempotency_key = $2
+	`
+
+	var record models.IdempotencyRecords
+
+	err := r.db.QueryRow(
+		ctx,
+		query,
+		tenantID,
+		key,
+	).Scan(
+		&record.TenantID,
+		&record.IdempotencyKey,
+		&record.RequestHash,
+		&record.ResponseRef,
+		&record.Status,
+		&record.ExpiresAt,
+		&record.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows){
+			return nil, errors.New("no record found")
+		}
+		return nil, err
+	}
+	return &record, nil
+}
+
+func (r *pgRepository) CreateRecord(ctx context.Context, record *models.IdempotencyRecords) error {
+
+	query := `
+	INSERT INTO idempotency_records
+	(tenant_id, idempotency_key, request_hash, response_ref, status, expires_at)
+	VALUES ($1, $2, $3, $4, $5, $6)
+	`
+	err := r.db.QueryRow(
+		ctx,
+		query,
+		record.TenantID,
+		record.IdempotencyKey,
+		record.RequestHash,
+		record.ResponseRef,
+		record.Status,
+		record.ExpiresAt,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create record: %v", err)
+	}
+	return nil
+}
+
+func (r *pgRepository) UpdateRecord(ctx context.Context, tenantID, key, status, response string) error {
+	query := `
+	UPDATE idempotency_records
+	SET status = $3, response_ref = $4
+	WHERE tenant_id = $1
+	AND idempotency_key = $2
+	`
+	cmdTag, err := r.db.Exec(
+		ctx,
+		query,
+		tenantID,
+		key,
+		status,
+		response,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update record: %v", err)
+	}
+
+	if cmdTag.RowsAffected() == 0 {
+		return fmt.Errorf("no record found")
+	}
+	return nil
+}
