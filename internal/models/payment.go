@@ -16,6 +16,7 @@ type PaymentIntents struct {
 
 type PaymentAttempts struct {
 	ID                   string `json:"id"`
+	TenantID             string `json:"tenant_id"`
 	PaymentIntentID      string `json:"payment_intent_id"`
 	ProviderConnectionID string `json:"provider_connection_id"`
 	AttemptNumber        int    `json:"attempt_number"`
