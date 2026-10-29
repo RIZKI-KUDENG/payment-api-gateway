@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"payment-api-gateway/internal/idempotency"
 	"payment-api-gateway/internal/models"
 	"payment-api-gateway/internal/provider"
 	"time"
@@ -12,11 +13,12 @@ import (
 type Service struct{
 	repo Repository
 	registry provider.Registry
+	idempotencyService *idempotency.Service
 }
 
 
-func NewService(repo Repository, registry provider.Registry) *Service{
-	return &Service{repo: repo, registry: registry}
+func NewService(repo Repository, registry provider.Registry, idempotencyService *idempotency.Service) *Service{
+	return &Service{repo: repo, registry: registry, idempotencyService: idempotencyService}
 }
 
 type CreateIntentInput struct {
@@ -27,7 +29,11 @@ type CreateIntentInput struct {
 	Currency string
 	ExpiresAt *time.Time
 }
-
+type IdempotencyInput struct {
+	TenantID string
+	Key string
+	Payload []byte
+}
 type SyncPaymentResult struct{
 	PaymentIntent *models.PaymentIntents `json:"payment_intent"`
 	LatestAttempt *models.PaymentAttempts `json:"latest_attempt,omitempty"`
@@ -37,18 +43,37 @@ type SyncPaymentResult struct{
 func (s *Service) CreatePaymentIntent(
 	ctx context.Context,
 	input CreateIntentInput,
+	idempotencyInput IdempotencyInput,
 )(*models.PaymentIntents, error){
+	 record, err := s.idempotencyService.Begin(ctx, idempotencyInput.TenantID, idempotencyInput.Key, idempotencyInput.Payload)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin idempotency: %w", err)
+	}
+
+	if record.Status == "completed" {
+		return s.repo.GetIntentByID(ctx, input.TenantID, record.ResponseRef)
+	}
+
+
+
 	intent := models.PaymentIntents{
 		TenantID: input.TenantID,
 		MerchantAccountID: input.MerchantAccountID,
 		MerchantReference: input.MerchantReference,
 		Amount: input.Amount,
 		Currency: input.Currency,
+		Status: "pending",
 		ExpiresAt: input.ExpiresAt,
 	}
 	if err := s.repo.CreateIntent(ctx, &intent); err != nil{
 		return nil, fmt.Errorf("failed to create payment intent: %w", err)
 	}
+
+	if err := s.idempotencyService.Complete(ctx, input.TenantID, idempotencyInput.Key, intent.ID); err != nil{
+		return nil, fmt.Errorf("failed to complete idempotency: %w", err)
+	}
+
 	return &intent, nil
 }
 

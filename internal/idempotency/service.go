@@ -40,9 +40,9 @@ func (s *Service) Begin(
 	tenantID string,
 	key string,
 	payload []byte,
-)(*models.IdempotencyRecords, bool, error) {
+)(*models.IdempotencyRecords, error) {
 	if key == ""{
-		return nil, false, errors.New("idempotency key is required")
+		return nil, errors.New("idempotency key is required")
 	}
 
 	requestHash := HashPayload(payload)
@@ -52,20 +52,20 @@ func (s *Service) Begin(
 
 	if err == nil {
 		if record.RequestHash != requestHash{
-			return nil, false,	ErrPayloadMissmatch
+			return nil,	ErrPayloadMissmatch
 		}
 		switch record.Status {
 		case "completed":
-			return record, true, nil
+			return record, nil
 		case "processing":
-			return nil, false, ErrInProgress
+			return nil, ErrInProgress
 		default:
-			return nil, false, fmt.Errorf("unknown status : %s", record.Status)
+			return nil,  fmt.Errorf("unknown status : %s", record.Status)
 		}
 	}
 
 	if !errors.Is(err, ErrRecordNotFound){
-		return nil, false, fmt.Errorf("get idempotency record: %w", err)
+		return nil,  fmt.Errorf("get idempotency record: %w", err)
 	}
 
 	record = &models.IdempotencyRecords{
@@ -76,10 +76,10 @@ func (s *Service) Begin(
 	}
 
 	if err := s.repo.CreateRecord(ctx, record); err != nil {
-		return nil, false, fmt.Errorf("claim idempotency key: %w", err)
+		return nil, fmt.Errorf("claim idempotency key: %w", err)
 	}
 
-	return record, false, nil
+	return record, nil
 }
 
 

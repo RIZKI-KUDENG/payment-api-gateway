@@ -36,6 +36,7 @@ func (r *pgRepository) GetRecord(ctx context.Context, tenantID, key string) (*mo
 	status,
 	created_at,
 	updated_at
+	FROM idempotency_records
 	WHERE tenant_id = $1
 	AND idempotency_key = $2
 	`
@@ -58,7 +59,7 @@ func (r *pgRepository) GetRecord(ctx context.Context, tenantID, key string) (*mo
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows){
-			return nil, errors.New("no record found")
+			return nil, ErrRecordNotFound
 		}
 		return nil, err
 	}
