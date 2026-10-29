@@ -12,6 +12,7 @@ import (
 
 
 
+var ErrRecordNotFound = errors.New("record not found")
 
 type Repository interface{
 	GetRecord(ctx context.Context, tenantID, key string) (*models.IdempotencyRecords, error)
