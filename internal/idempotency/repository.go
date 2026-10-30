@@ -38,8 +38,8 @@ func (r *pgRepository) GetRecord(ctx context.Context, tenantID, key string) (*mo
 	request_hash,
 	response_ref,
 	status,
-	created_at,
-	updated_at
+	expires_at,
+	created_at
 	FROM idempotency_records
 	WHERE tenant_id = $1
 	AND idempotency_key = $2
@@ -77,7 +77,7 @@ func (r *pgRepository) CreateRecord(ctx context.Context, record *models.Idempote
 	(tenant_id, idempotency_key, request_hash, response_ref, status, expires_at)
 	VALUES ($1, $2, $3, $4, $5, $6)
 	`
-	err := r.db.QueryRow(
+	_, err := r.db.Exec(
 		ctx,
 		query,
 		record.TenantID,

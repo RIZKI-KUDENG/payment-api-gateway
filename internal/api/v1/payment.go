@@ -94,7 +94,7 @@ func (h *PaymentHandler) CreatePaymentIntent(w http.ResponseWriter, r *http.Requ
 			response.WriteError(w, http.StatusConflict, "IDEMPOTENCY_IN_PROGRESS", "Request with this idempotency key is still processing")
 			return
 		}
-		response.WriteError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to create payment intent")
+		response.WriteError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", err.Error())
 		return
 	}
 
