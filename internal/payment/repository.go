@@ -30,6 +30,10 @@ type pgRepository struct{
 	db *pgxpool.Pool
 }
 
+func NewRepository(db *pgxpool.Pool) Repository {
+	return &pgRepository{db: db}
+}
+
 
 func (r *pgRepository) CreateIntent(ctx context.Context,intent *models.PaymentIntents) error{
 	query := `

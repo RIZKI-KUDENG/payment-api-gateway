@@ -25,6 +25,10 @@ type pgRepository struct {
 	db *pgxpool.Pool
 }
 
+func NewRepository(db *pgxpool.Pool) Repository {
+	return &pgRepository{db: db}
+}
+
 func (r *pgRepository) GetRecord(ctx context.Context, tenantID, key string) (*models.IdempotencyRecords, error) {
 
 	query := `
