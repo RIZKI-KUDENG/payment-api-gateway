@@ -24,6 +24,7 @@ type Repository interface {
 	UpdateIntentStatus(ctx context.Context, tenantID, id, status string) error
 	CreateAttempt(ctx context.Context, attempt *models.PaymentAttempts) error
 	GetLatestAttempt(ctx context.Context, tenantID, paymentIntentID string) (*models.PaymentAttempts, error)
+	GetDefaultProviderConnectionID(ctx context.Context, tenantID, merchantAccountID string)(string, error)
 }
 
 type pgRepository struct{
@@ -269,4 +270,27 @@ func (r *pgRepository) GetLatestAttempt(ctx context.Context, tenantID, paymentIn
 	}
 
 	return &att, nil
+}
+
+
+func (r *pgRepository) GetDefaultProviderConnectionID(ctx context.Context, tenantID, merchantAccountID string)(string, error){
+
+	query := `SELECT provider_connection_id
+	FROM merchant_provider_connections
+	WHERE tenant_id = $1 AND merchant_account_id = $2 AND is_default = true
+	AND status = 'active'
+	LIMIT 1
+	`
+
+	var connectionID string
+
+	err := r.db.QueryRow(ctx, query, tenantID, merchantAccountID).Scan(&connectionID)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows){
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to get default provider connection: %w", err)
+	}
+	return connectionID, nil
 }

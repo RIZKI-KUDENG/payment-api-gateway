@@ -69,7 +69,35 @@ func (s *Service) CreatePaymentIntent(
 	if err := s.repo.CreateIntent(ctx, &intent); err != nil{
 		return nil, fmt.Errorf("failed to create payment intent: %w", err)
 	}
+	connectionID, err := s.repo.GetDefaultProviderConnectionID(ctx, input.TenantID, input.MerchantAccountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get default provider connection: %w", err)
+	}
+	providerClient , err := s.registry.GetProvider(ctx, connectionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get provider: %w", err)
+	}
 
+	midtransResp, err := providerClient.CreatePayment(
+		ctx,
+		provider.CreatePaymentRequest{
+			PaymentIntentID: intent.ID,
+			MerchantReference: input.MerchantReference,
+			Amount: intent.Amount,
+			Currency: intent.Currency,
+			ExpiresAt: intent.ExpiresAt,
+		})
+	if err != nil {
+		return nil, fmt.Errorf("failed to call midtrans: %w", err)
+	}
+	attempt := models.PaymentAttempts{
+		TenantID: input.TenantID,
+		PaymentIntentID: intent.ID,
+		ProviderPaymentID: midtransResp.ProviderPaymentID,
+		ProviderStatus: midtransResp.ProviderStatus,
+		Status: "pending",
+	}
+	_ = s.repo.CreateAttempt(ctx, &attempt)
 	if err := s.idempotencyService.Complete(ctx, input.TenantID, idempotencyInput.Key, intent.ID); err != nil{
 		return nil, fmt.Errorf("failed to complete idempotency: %w", err)
 	}
