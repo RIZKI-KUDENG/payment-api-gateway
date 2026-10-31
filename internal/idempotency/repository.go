@@ -18,6 +18,7 @@ type Repository interface{
 	GetRecord(ctx context.Context, tenantID, key string) (*models.IdempotencyRecords, error)
 	CreateRecord(ctx context.Context, record *models.IdempotencyRecords) error
 	UpdateRecord(ctx context.Context, tenantID, key, status, response string) error
+	DeleteRecord(ctx context.Context, tenantID, key string) error
 }
 
 
@@ -116,4 +117,10 @@ func (r *pgRepository) UpdateRecord(ctx context.Context, tenantID, key, status, 
 		return fmt.Errorf("no record found")
 	}
 	return nil
+}
+
+func (r *pgRepository) DeleteRecord(ctx context.Context, tenantID, key string) error {
+	query := `DELETE FROM idempotency_records WHERE tenant_id = $1 AND idempotency_key = $2`
+	_, err := r.db.Exec(ctx, query, tenantID, key)
+	return err
 }

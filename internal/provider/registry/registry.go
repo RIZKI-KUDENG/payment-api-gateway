@@ -32,7 +32,7 @@ func NewRegistry(db *pgxpool.Pool, credRepo credential.Repository, masterKey []b
 
 func (r *pgRegistry) GetProvider(ctx context.Context, connectionID string) (provider.PaymentProvider, error){
 	query := `
-	SELECT tenant_id, provider, credential_ref, environment
+	SELECT tenant_id, provider, credentials_ref, environment
 	FROM provider_connections WHERE id = $1 AND status = 'active'
 	`
 
@@ -42,7 +42,7 @@ func (r *pgRegistry) GetProvider(ctx context.Context, connectionID string) (prov
 		ctx,
 		query,
 		connectionID,
-	).Scan(&tenantID, &providerName, &credentialRef, environment)
+	).Scan(&tenantID, &providerName, &credentialRef, &environment)
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows){

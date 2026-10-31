@@ -29,6 +29,10 @@ type CreateIntentInput struct {
 	Currency string
 	ExpiresAt *time.Time
 }
+type CreateIntentResult struct{
+	*models.PaymentIntents
+	CheckoutURL string `json:"checkout_url"`
+}
 type IdempotencyInput struct {
 	TenantID string
 	Key string
@@ -44,7 +48,7 @@ func (s *Service) CreatePaymentIntent(
 	ctx context.Context,
 	input CreateIntentInput,
 	idempotencyInput IdempotencyInput,
-)(*models.PaymentIntents, error){
+)(*CreateIntentResult, error){
 	 record, err := s.idempotencyService.Begin(ctx, idempotencyInput.TenantID, idempotencyInput.Key, idempotencyInput.Payload)
 
 	if err != nil {
@@ -52,57 +56,76 @@ func (s *Service) CreatePaymentIntent(
 	}
 
 	if record.Status == "completed" {
-		return s.repo.GetIntentByID(ctx, input.TenantID, record.ResponseRef)
+		intent, err := s.repo.GetIntentByID(ctx, input.TenantID, record.ResponseRef)
+		if err != nil {
+			return nil, err
+		}
+		return &CreateIntentResult{
+			PaymentIntents: intent,
+		}, nil
 	}
 
 
 
-	intent := models.PaymentIntents{
-		TenantID: input.TenantID,
-		MerchantAccountID: input.MerchantAccountID,
-		MerchantReference: input.MerchantReference,
-		Amount: input.Amount,
-		Currency: input.Currency,
-		Status: "pending",
-		ExpiresAt: input.ExpiresAt,
-	}
-	if err := s.repo.CreateIntent(ctx, &intent); err != nil{
-		return nil, fmt.Errorf("failed to create payment intent: %w", err)
-	}
 	connectionID, err := s.repo.GetDefaultProviderConnectionID(ctx, input.TenantID, input.MerchantAccountID)
 	if err != nil {
+		_ = s.idempotencyService.Delete(ctx, input.TenantID, idempotencyInput.Key)
 		return nil, fmt.Errorf("failed to get default provider connection: %w", err)
 	}
-	providerClient , err := s.registry.GetProvider(ctx, connectionID)
+
+	providerClient, err := s.registry.GetProvider(ctx, connectionID)
 	if err != nil {
+		_ = s.idempotencyService.Delete(ctx, input.TenantID, idempotencyInput.Key)
 		return nil, fmt.Errorf("failed to get provider: %w", err)
 	}
 
 	midtransResp, err := providerClient.CreatePayment(
 		ctx,
 		provider.CreatePaymentRequest{
-			PaymentIntentID: intent.ID,
 			MerchantReference: input.MerchantReference,
-			Amount: intent.Amount,
-			Currency: intent.Currency,
-			ExpiresAt: intent.ExpiresAt,
-		})
+			Amount:            input.Amount,
+			Currency:          input.Currency,
+			ExpiresAt:         input.ExpiresAt,
+		},
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to call midtrans: %w", err)
+		_ = s.idempotencyService.Delete(ctx, input.TenantID, idempotencyInput.Key)
+		return nil, fmt.Errorf("failed to call provider: %w", err)
 	}
+
+
+	intent := models.PaymentIntents{
+		TenantID:          input.TenantID,
+		MerchantAccountID: input.MerchantAccountID,
+		MerchantReference: input.MerchantReference,
+		Amount:            input.Amount,
+		Currency:          input.Currency,
+		Status:            "pending",
+		ExpiresAt:         input.ExpiresAt,
+	}
+
 	attempt := models.PaymentAttempts{
-		TenantID: input.TenantID,
-		PaymentIntentID: intent.ID,
-		ProviderPaymentID: midtransResp.ProviderPaymentID,
-		ProviderStatus: midtransResp.ProviderStatus,
-		Status: "pending",
+		TenantID:             input.TenantID,
+		ProviderConnectionID: connectionID,
+		ProviderPaymentID:    midtransResp.ProviderPaymentID,
+		ProviderStatus:       midtransResp.ProviderStatus,
+		Status:               "pending",
 	}
-	_ = s.repo.CreateAttempt(ctx, &attempt)
-	if err := s.idempotencyService.Complete(ctx, input.TenantID, idempotencyInput.Key, intent.ID); err != nil{
+
+	if err := s.repo.CreateIntentWithAttempt(ctx, &intent, &attempt); err != nil {
+		_ = s.idempotencyService.Delete(ctx, input.TenantID, idempotencyInput.Key)
+		return nil, fmt.Errorf("failed to save payment in db transaction: %w", err)
+	}
+
+
+	if err := s.idempotencyService.Complete(ctx, input.TenantID, idempotencyInput.Key, intent.ID); err != nil {
 		return nil, fmt.Errorf("failed to complete idempotency: %w", err)
 	}
 
-	return &intent, nil
+	return &CreateIntentResult{
+		PaymentIntents: &intent,
+		CheckoutURL: midtransResp.CheckoutURL,
+	}, nil
 }
 
 func (s *Service) GetPaymentIntent(ctx context.Context, tenantID, id string ) (*models.PaymentIntents, error){

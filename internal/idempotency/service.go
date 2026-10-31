@@ -100,3 +100,7 @@ func (s *Service) Complete(
 	}
 	return nil
 }
+
+func (s *Service) Delete(ctx context.Context, tenantID, key string) error {
+	return s.repo.DeleteRecord(ctx, tenantID, key)
+}

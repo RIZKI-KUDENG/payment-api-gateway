@@ -1,6 +1,8 @@
 package api
 
 import (
+	"encoding/hex"
+	"log"
 	"net/http"
 	"os"
 
@@ -21,8 +23,15 @@ func NewRouter(db *pgxpool.Pool, authenticator auth.APIKeyAuthenticator) http.Ha
 	idempRepo := idempotency.NewRepository(db)
 	idempService := idempotency.NewService(idempRepo)
 	credRepo := credential.NewRepository(db)
-	masterKey := []byte(os.Getenv("APP_ENCRYPTION_KEY"))
-	providerRegistry := registry.NewRegistry(db, credRepo, masterKey)
+	masterKey := os.Getenv("APP_ENCRYPTION_KEY")
+	key, err := hex.DecodeString(masterKey)
+	if err != nil {
+		log.Fatalf("Invalid APP_ENCRYPTION_KEY: %v", err)
+	}
+	if len(key) != 32 {
+		log.Fatalf("APP_ENCRYPTION_KEY must be exactly 32 bytes (64 hex characters), got %d bytes", len(key))
+	}
+	providerRegistry := registry.NewRegistry(db, credRepo, key)
 
 	paymentRepo := payment.NewRepository(db)
 	paymentService := payment.NewService(paymentRepo, providerRegistry, idempService)

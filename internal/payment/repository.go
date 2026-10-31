@@ -25,6 +25,7 @@ type Repository interface {
 	CreateAttempt(ctx context.Context, attempt *models.PaymentAttempts) error
 	GetLatestAttempt(ctx context.Context, tenantID, paymentIntentID string) (*models.PaymentAttempts, error)
 	GetDefaultProviderConnectionID(ctx context.Context, tenantID, merchantAccountID string)(string, error)
+	CreateIntentWithAttempt(ctx context.Context, intent *models.PaymentIntents, attempt *models.PaymentAttempts) error
 }
 
 type pgRepository struct{
@@ -288,9 +289,70 @@ func (r *pgRepository) GetDefaultProviderConnectionID(ctx context.Context, tenan
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows){
-			return "", nil
+			return "", fmt.Errorf("no active default provider connection found for merchant: %s", merchantAccountID)
 		}
 		return "", fmt.Errorf("failed to get default provider connection: %w", err)
 	}
 	return connectionID, nil
+}
+
+func (r *pgRepository) CreateIntentWithAttempt(ctx context.Context, intent *models.PaymentIntents, attempt *models.PaymentAttempts) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	queryIntent := `
+	INSERT INTO payment_intents (
+		tenant_id,
+		merchant_account_id,
+		merchant_reference,
+		amount,
+		currency,
+		status,
+		expires_at
+	) VALUES ($1, $2, $3, $4, $5, $6, $7)
+	RETURNING id, created_at, updated_at
+	`
+	if err := tx.QueryRow(ctx, queryIntent,
+		intent.TenantID,
+		intent.MerchantAccountID,
+		intent.MerchantReference,
+		intent.Amount,
+		intent.Currency,
+		intent.Status,
+		intent.ExpiresAt,
+	).Scan(&intent.ID, &intent.CreatedAt, &intent.UpdatedAt); err != nil {
+		return fmt.Errorf("create intent: %w", err)
+	}
+
+	attempt.PaymentIntentID = intent.ID
+	queryAttempt := `
+	INSERT INTO payment_attempts (
+		tenant_id,
+		payment_intent_id,
+		provider_connection_id,
+		attempt_number,
+		provider_payment_id,
+		provider_status,
+		status
+	) VALUES (
+		$1, $2, $3,
+		COALESCE((SELECT MAX(attempt_number) FROM payment_attempts WHERE payment_intent_id = $2), 0) + 1,
+		$4, $5, $6
+	) RETURNING id, attempt_number, created_at, updated_at
+	`
+	if err := tx.QueryRow(ctx, queryAttempt,
+		attempt.TenantID,
+		attempt.PaymentIntentID,
+		attempt.ProviderConnectionID,
+		attempt.ProviderPaymentID,
+		attempt.ProviderStatus,
+		attempt.Status,
+	).Scan(&attempt.ID, &attempt.AttemptNumber, &attempt.CreatedAt, &attempt.UpdatedAt); err != nil {
+		return fmt.Errorf("create attempt: %w", err)
+	}
+
+	return tx.Commit(ctx)
 }

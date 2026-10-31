@@ -83,6 +83,7 @@ func (c *Client) CreatePayment(ctx context.Context, req provider.CreatePaymentRe
 
 	authHeader := base64.StdEncoding.EncodeToString([]byte(c.serverKey + ":"))
 	httpReq.Header.Set("Authorization", "Basic "+authHeader)
+	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
@@ -125,6 +126,7 @@ func (c *Client) GetPaymentStatus (ctx context.Context, orderID string)(*provide
 
 	authHeader := base64.StdEncoding.EncodeToString([]byte(c.serverKey + ":"))
 	httpReq.Header.Set("Authorization", "Basic "+authHeader)
+	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
