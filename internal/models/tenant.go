@@ -42,3 +42,11 @@ type MerchantProviderConnections struct {
 	IsDefault            bool   `json:"is_default"`
 	TimeStamps
 }
+
+type ProviderCredentials struct {
+	ID string `json:"id"`
+	TenantID string `json:"tenant_id"`
+	EncryptedValue []byte `json:"encrypted_value"`
+	EncryptedKeyVersion int `json:"encrypted_key_version"`
+	TimeStamps
+}
